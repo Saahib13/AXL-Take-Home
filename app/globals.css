@@ -1,0 +1,72 @@
+@tailwind base;
+@tailwind components;
+@tailwind utilities;
+
+:root {
+  --background: 222 47% 6%;
+  --foreground: 210 40% 98%;
+
+  --card: 222 47% 9%;
+  --card-foreground: 210 40% 98%;
+
+  --popover: 222 47% 9%;
+  --popover-foreground: 210 40% 98%;
+
+  --primary: 217 91% 60%;
+  --primary-foreground: 222 47% 6%;
+
+  --secondary: 270 60% 55%;
+  --secondary-foreground: 210 40% 98%;
+
+  --muted: 217 33% 17%;
+  --muted-foreground: 215 20% 65%;
+
+  --accent: 270 60% 55%;
+  --accent-foreground: 210 40% 98%;
+
+  --destructive: 0 84% 60%;
+  --destructive-foreground: 210 40% 98%;
+
+  --success: 142 76% 36%;
+  --success-foreground: 210 40% 98%;
+
+  --gold: 45 93% 47%;
+  --gold-foreground: 222 47% 6%;
+
+  --border: 217 33% 20%;
+  --input: 217 33% 17%;
+  --ring: 217 91% 60%;
+
+  --radius: 0.75rem;
+}
+
+@layer base {
+  * {
+    @apply border-border;
+  }
+  body {
+    @apply bg-background text-foreground;
+    font-feature-settings: "rlig" 1, "calt" 1;
+  }
+}
+
+@layer utilities {
+  .text-balance {
+    text-wrap: balance;
+  }
+  .text-pretty {
+    text-wrap: pretty;
+  }
+  .glow-primary {
+    box-shadow: 0 0 20px 0 hsl(var(--primary) / 0.3);
+  }
+  .glow-gold {
+    box-shadow: 0 0 20px 0 hsl(var(--gold) / 0.3);
+  }
+  .glow-success {
+    box-shadow: 0 0 20px 0 hsl(var(--success) / 0.3);
+  }
+  .glow-destructive {
+    box-shadow: 0 0 20px 0 hsl(var(--destructive) / 0.3);
+  }
+}
