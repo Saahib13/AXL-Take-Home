@@ -2,6 +2,14 @@ This is a [Next.js](https://nextjs.org) project bootstrapped with [`create-next-
 
 **Current Event Millionaire** — take-home skeleton: App Router, TypeScript, Tailwind CSS, shadcn/ui, Zod, Supabase client, and Google GenAI (`@google/genai`). Copy [`.env.example`](./.env.example) to `.env.local` and set `NEXT_PUBLIC_SUPABASE_*`, `SUPABASE_SERVICE_ROLE_KEY`, and `GEMINI_API_KEY` before wiring backend routes. Deploy on [Vercel](https://vercel.com) with the same variable names.
 
+## Corpus seeding
+
+1. Add topic cards to [`data/corpus.json`](./data/corpus.json) (JSON array). Allowed `category` values: `AI`, `Startups`, `Internet Culture`, `Technology History`, `Current Events`; `difficulty` 1–3.
+2. Run `npm run seed:corpus` (loads `.env.local`; uses the Supabase **service role** key).
+3. Run `npm run verify:supabase` to confirm table health, row counts by category, and an `AI` sample read (up to 5 rows).
+
+Re-running the seed **appends** duplicate rows unless you clear `corpus_items` first.
+
 ## Getting Started
 
 First, run the development server:
