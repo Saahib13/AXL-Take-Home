@@ -14,6 +14,8 @@ Re-running the seed **appends** duplicate rows unless you clear `corpus_items` f
 
 Deterministic rules live in [`lib/game/engine.ts`](./lib/game/engine.ts) (no DB, AI, or randomness). Run **`npm test`** for Vitest unit tests.
 
+Gemini MCQ smoke test (needs `GEMINI_API_KEY` in `.env.local`): **`npm run test:gemini`**.
+
 ## Getting Started
 
 First, run the development server:
