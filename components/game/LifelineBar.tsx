@@ -1,7 +1,7 @@
 "use client";
 
 import { cn } from "@/lib/utils";
-import { Divide, MessageCircle, SkipForward } from "lucide-react";
+import { Divide, MessageCircle, SkipForward, Sparkles } from "lucide-react";
 import type { Lifelines, LifelineType } from "@/types/game";
 
 interface LifelineBarProps {
@@ -16,6 +16,7 @@ interface LifelineConfig {
   label: string;
   icon: React.ReactNode;
   description: string;
+  color: string;
 }
 
 const lifelineConfigs: LifelineConfig[] = [
@@ -24,18 +25,21 @@ const lifelineConfigs: LifelineConfig[] = [
     label: "50:50",
     icon: <Divide className="h-5 w-5" />,
     description: "Remove two wrong answers",
+    color: "primary",
   },
   {
     key: "askTheHost",
     label: "Ask the Host",
     icon: <MessageCircle className="h-5 w-5" />,
-    description: "Get a hint from the AI host",
+    description: "Get a hint from the AI",
+    color: "secondary",
   },
   {
     key: "skip",
-    label: "Skip",
+    label: "Skip Question",
     icon: <SkipForward className="h-5 w-5" />,
-    description: "Skip to the next question",
+    description: "Skip to next question",
+    color: "gold",
   },
 ];
 
@@ -48,14 +52,21 @@ export function LifelineBar({
   return (
     <div
       className={cn(
-        "bg-card border border-border rounded-2xl p-4 shadow-lg",
+        "bg-card/80 backdrop-blur-sm border border-border/50 rounded-2xl p-5 shadow-xl inner-glow",
         className
       )}
     >
-      <h2 className="text-sm font-semibold text-muted-foreground uppercase tracking-wider mb-4">
-        Lifelines
-      </h2>
-      <div className="flex flex-col gap-2">
+      <div className="flex items-center gap-2 mb-5">
+        <Sparkles className="h-4 w-4 text-primary" />
+        <h2 className="text-sm font-semibold text-foreground uppercase tracking-wider">
+          Lifelines
+        </h2>
+        <span className="ml-auto text-xs text-muted-foreground font-mono">
+          {Object.values(lifelines).filter(Boolean).length}/3 remaining
+        </span>
+      </div>
+
+      <div className="flex flex-col gap-2.5">
         {lifelineConfigs.map((config) => {
           const isAvailable = lifelines[config.key];
           const isDisabled = disabled || !isAvailable;
@@ -66,43 +77,61 @@ export function LifelineBar({
               onClick={() => onUse(config.key)}
               disabled={isDisabled}
               className={cn(
-                "flex items-center gap-3 p-3 rounded-xl border-2 transition-all duration-200 text-left",
-                isAvailable &&
-                  "border-border bg-card hover:border-primary/50 hover:bg-primary/5 cursor-pointer",
+                "group relative flex items-center gap-4 p-4 rounded-xl border-2 transition-all duration-300 text-left overflow-hidden",
+                isAvailable && !disabled &&
+                  "border-border bg-card/50 hover:border-primary/50 hover:bg-primary/5 cursor-pointer hover:scale-[1.01] active:scale-[0.99]",
+                isAvailable && disabled &&
+                  "border-border/50 bg-muted/10 cursor-not-allowed opacity-60",
                 !isAvailable &&
-                  "border-border/30 bg-muted/20 cursor-not-allowed opacity-40"
+                  "border-border/20 bg-muted/5 cursor-not-allowed"
               )}
             >
+              {/* Hover gradient */}
+              {isAvailable && !disabled && (
+                <div className="absolute inset-0 bg-gradient-to-r from-primary/5 to-secondary/5 opacity-0 group-hover:opacity-100 transition-opacity duration-300" />
+              )}
+
+              {/* Icon */}
               <div
                 className={cn(
-                  "flex-shrink-0 w-10 h-10 rounded-lg flex items-center justify-center border transition-colors",
-                  isAvailable
-                    ? "border-primary/50 bg-primary/10 text-primary"
-                    : "border-border/30 bg-muted/30 text-muted-foreground/50"
+                  "relative flex-shrink-0 w-11 h-11 rounded-xl flex items-center justify-center border-2 transition-all duration-300",
+                  isAvailable && config.color === "primary" && "border-primary/40 bg-primary/10 text-primary group-hover:border-primary group-hover:bg-primary/20",
+                  isAvailable && config.color === "secondary" && "border-secondary/40 bg-secondary/10 text-secondary group-hover:border-secondary group-hover:bg-secondary/20",
+                  isAvailable && config.color === "gold" && "border-gold/40 bg-gold/10 text-gold group-hover:border-gold group-hover:bg-gold/20",
+                  !isAvailable && "border-border/30 bg-muted/20 text-muted-foreground/30"
                 )}
               >
                 {config.icon}
               </div>
-              <div className="flex-1 min-w-0">
+
+              {/* Text */}
+              <div className="relative flex-1 min-w-0">
                 <div
                   className={cn(
-                    "font-semibold text-sm",
-                    isAvailable ? "text-foreground" : "text-muted-foreground/50"
+                    "font-semibold text-sm transition-colors duration-200",
+                    isAvailable ? "text-foreground" : "text-muted-foreground/40"
                   )}
                 >
                   {config.label}
                 </div>
                 <div
                   className={cn(
-                    "text-xs truncate",
+                    "text-xs truncate transition-colors duration-200",
                     isAvailable
                       ? "text-muted-foreground"
-                      : "text-muted-foreground/30"
+                      : "text-muted-foreground/25"
                   )}
                 >
-                  {isAvailable ? config.description : "Used"}
+                  {isAvailable ? config.description : "Already used"}
                 </div>
               </div>
+
+              {/* Status indicator */}
+              {!isAvailable && (
+                <div className="relative text-xs text-muted-foreground/40 font-medium px-2 py-1 bg-muted/20 rounded-md">
+                  Used
+                </div>
+              )}
             </button>
           );
         })}
@@ -130,25 +159,30 @@ export function LifelineBarCompact({
             disabled={isDisabled}
             title={config.description}
             className={cn(
-              "flex items-center gap-2 px-4 py-2 rounded-xl border-2 transition-all duration-200",
-              isAvailable &&
-                "border-border bg-card hover:border-primary/50 hover:bg-primary/5 cursor-pointer",
+              "group flex items-center gap-2.5 px-4 py-3 rounded-xl border-2 transition-all duration-300 flex-1",
+              isAvailable && !disabled &&
+                "border-border bg-card/80 hover:border-primary/50 hover:bg-primary/5 cursor-pointer",
+              isAvailable && disabled &&
+                "border-border/50 bg-muted/10 cursor-not-allowed opacity-60",
               !isAvailable &&
-                "border-border/30 bg-muted/20 cursor-not-allowed opacity-40"
+                "border-border/20 bg-muted/5 cursor-not-allowed opacity-40"
             )}
           >
             <div
               className={cn(
-                "transition-colors",
-                isAvailable ? "text-primary" : "text-muted-foreground/50"
+                "w-8 h-8 rounded-lg flex items-center justify-center transition-colors duration-200",
+                isAvailable && config.color === "primary" && "bg-primary/10 text-primary",
+                isAvailable && config.color === "secondary" && "bg-secondary/10 text-secondary",
+                isAvailable && config.color === "gold" && "bg-gold/10 text-gold",
+                !isAvailable && "bg-muted/20 text-muted-foreground/40"
               )}
             >
               {config.icon}
             </div>
             <span
               className={cn(
-                "font-semibold text-sm hidden sm:inline",
-                isAvailable ? "text-foreground" : "text-muted-foreground/50"
+                "font-semibold text-sm hidden sm:inline transition-colors duration-200",
+                isAvailable ? "text-foreground" : "text-muted-foreground/40"
               )}
             >
               {config.label}

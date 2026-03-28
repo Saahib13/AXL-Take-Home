@@ -42,8 +42,8 @@ export function GameClient({ sessionId }: GameClientProps) {
 
     setIsLocking(true);
 
-    // Simulate API call delay
-    await new Promise((resolve) => setTimeout(resolve, 1500));
+    // Simulate API call delay with suspenseful timing
+    await new Promise((resolve) => setTimeout(resolve, 2000));
 
     const correctId = MOCK_CORRECT_ANSWERS[gameState.currentQuestion.id];
     const explanation = MOCK_EXPLANATIONS[gameState.currentQuestion.id];
@@ -94,7 +94,7 @@ export function GameClient({ sessionId }: GameClientProps) {
                 : [...prev.categoriesFaced, nextQuestion.category],
             }));
             setDisabledAnswers([]);
-          }, 2000);
+          }, 2500);
         }
       } else {
         // Lost the game
@@ -106,7 +106,7 @@ export function GameClient({ sessionId }: GameClientProps) {
             : 0,
         }));
       }
-    }, 3000);
+    }, 3500);
   }, [gameState.currentQuestion, gameState.selectedAnswerId, gameState.currentQuestionIndex]);
 
   const handleUseLifeline = useCallback(
@@ -157,7 +157,7 @@ export function GameClient({ sessionId }: GameClientProps) {
                 : [...prev.categoriesFaced, nextQuestion.category],
             }));
             setDisabledAnswers([]);
-          }, 1500);
+          }, 2000);
         }
       }
     },
@@ -189,7 +189,12 @@ export function GameClient({ sessionId }: GameClientProps) {
     };
 
     return (
-      <div className="min-h-screen bg-background flex items-center justify-center p-4">
+      <div className="min-h-screen bg-background flex items-center justify-center p-6">
+        {/* Background effects for results */}
+        <div className="fixed inset-0 pointer-events-none">
+          <div className="absolute top-1/4 left-1/4 w-[500px] h-[500px] bg-primary/5 rounded-full blur-[150px]" />
+          <div className="absolute bottom-1/4 right-1/4 w-[400px] h-[400px] bg-secondary/5 rounded-full blur-[120px]" />
+        </div>
         <ResultSummaryCard
           result={result}
           onPlayAgain={handlePlayAgain}
@@ -211,13 +216,19 @@ export function GameClient({ sessionId }: GameClientProps) {
 
   return (
     <div className="min-h-screen bg-background">
+      {/* Background effects */}
+      <div className="fixed inset-0 pointer-events-none">
+        <div className="absolute top-0 left-1/4 w-[600px] h-[600px] bg-primary/3 rounded-full blur-[150px]" />
+        <div className="absolute bottom-0 right-1/4 w-[500px] h-[500px] bg-secondary/3 rounded-full blur-[120px]" />
+      </div>
+
       <LoadingOverlay
         isVisible={gameState.status === "loading"}
         message="Generating your next question..."
-        submessage="Retrieving context and composing answer choices..."
+        submessage="Our AI is crafting a unique challenge just for you"
       />
 
-      <div className="max-w-7xl mx-auto p-4 lg:p-6">
+      <div className="relative max-w-7xl mx-auto p-5 lg:p-8">
         <GameHeader
           questionNumber={gameState.currentQuestion.questionNumber}
           totalQuestions={MOCK_QUESTIONS.length}
@@ -227,7 +238,7 @@ export function GameClient({ sessionId }: GameClientProps) {
         />
 
         {/* Mobile compact views */}
-        <div className="lg:hidden mt-4 space-y-4">
+        <div className="lg:hidden mt-5 space-y-4">
           <PrizeLadderCompact currentStep={gameState.currentQuestionIndex} />
           <LifelineBarCompact
             lifelines={gameState.lifelines}
@@ -236,12 +247,12 @@ export function GameClient({ sessionId }: GameClientProps) {
           />
         </div>
 
-        <div className="mt-6 grid grid-cols-1 lg:grid-cols-[260px_1fr_280px] gap-6">
+        <div className="mt-8 grid grid-cols-1 lg:grid-cols-[280px_1fr_300px] gap-6 lg:gap-8">
           {/* Left sidebar - Prize Ladder (desktop only) */}
           <aside className="hidden lg:block">
             <PrizeLadder
               currentStep={gameState.currentQuestionIndex}
-              className="sticky top-6"
+              className="sticky top-8"
             />
           </aside>
 
