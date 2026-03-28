@@ -11,7 +11,9 @@
     "seed:corpus": "tsx --env-file=.env.local scripts/seed-corpus.ts",
     "test": "vitest run",
     "test:watch": "vitest",
-    "test:gemini": "tsx --env-file=.env.local scripts/test-gemini-question.ts"
+    "test:gemini": "tsx --env-file=.env.local scripts/test-gemini-question.ts",
+    "test:context": "tsx --env-file=.env.local scripts/test-get-question-context.ts",
+    "test:create-question": "tsx --env-file=.env.local scripts/test-create-question-for-session.ts"
   },
   "dependencies": {
     "@base-ui/react": "^1.3.0",
