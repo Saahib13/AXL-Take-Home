@@ -1,5 +1,7 @@
 This is a [Next.js](https://nextjs.org) project bootstrapped with [`create-next-app`](https://nextjs.org/docs/app/api-reference/cli/create-next-app).
 
+**Current Event Millionaire** — take-home skeleton: App Router, TypeScript, Tailwind CSS, shadcn/ui, Zod, Supabase client, and Google GenAI (`@google/genai`). Copy [`.env.example`](./.env.example) to `.env.local` and set `NEXT_PUBLIC_SUPABASE_*`, `SUPABASE_SERVICE_ROLE_KEY`, and `GEMINI_API_KEY` before wiring backend routes. Deploy on [Vercel](https://vercel.com) with the same variable names.
+
 ## Getting Started
 
 First, run the development server:
