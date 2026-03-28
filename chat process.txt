@@ -1,0 +1,468 @@
+Start backend-first, not UI-first.
+The very first thing to build is one server function that takes a category + difficulty, pulls a few rows from Supabase, asks Gemini for a valid multiple-choice question in structured JSON, and returns it. If that works, the rest of the app is just product logic around it.
+For this project, use the standard Gemini generateContent flow, not the newer Interactions API. Google’s docs currently say the Interactions API is still in beta and that generateContent remains the recommended path for stable deployments. Gemini also supports structured outputs with JSON schema/Zod, which is exactly what you want for clean question objects. (Google AI for Developers)
+1. Lock the scope before you code
+Write down the exact game you are building.
+Your take-home version should be:
+single-player only
+10 questions
+3 lifelines: 50:50, Ask the Host, Skip
+categories: AI, startups, internet culture, technology, current events
+seeded corpus in Supabase
+Gemini-generated questions
+one optional “Today’s Bonus” question grounded with Google Search
+no auth
+no multiplayer
+no admin panel
+no fancy analytics
+You want the app to feel complete, not huge.
+Also decide your success criteria now:
+start a game
+get question 1
+answer correctly/incorrectly
+lifelines work
+prize ladder updates
+game ends cleanly
+deployed URL works
+That is your definition of done.
+
+2. Create the project skeleton
+Create a fresh Next.js app with TypeScript and App Router. Supabase’s official Next.js quickstart uses a standard Next.js setup and shows the basic project flow for creating the app and connecting it to a Supabase project. (Supabase)
+Set up these folders early:
+app/
+  api/
+  game/
+  results/
+components/
+lib/
+  supabase/
+  gemini/
+  game/
+types/
+scripts/
+data/
+
+Create these environment variables right away:
+NEXT_PUBLIC_SUPABASE_URL=
+NEXT_PUBLIC_SUPABASE_ANON_KEY=
+SUPABASE_SERVICE_ROLE_KEY=
+GEMINI_API_KEY=
+
+Use .env.local for local development. On Vercel, add the same variables in the project settings. Vercel’s docs note that local development variables live in .env.local, and that changes to environment variables only apply to new deployments, so you need to redeploy after changing them. (Vercel)
+What to do here
+create repo
+push to GitHub
+connect repo to Vercel
+add placeholder env vars locally
+make sure the app runs locally before you add any logic
+Definition of done
+You can run the app locally and see a blank homepage.
+
+3. Create the Supabase project
+Create a new Supabase project and get:
+project URL
+anon key
+service role key
+SQL editor access
+Supabase’s Next.js quickstart starts with creating a project, then creating tables in the dashboard or SQL editor. (Supabase)
+Do not start with vectors yet. Start with plain Postgres tables and normal filtering. Vectors are optional polish later.
+
+4. Design the database schema
+Create four tables.
+corpus_items
+This is your dataset.
+Suggested columns:
+id uuid primary key
+title text not null
+category text not null
+difficulty int not null default 1
+summary text not null
+fact_1 text
+fact_2 text
+fact_3 text
+tags text[]
+source_label text
+source_url text
+is_current boolean default false
+created_at timestamp default now()
+game_sessions
+This is one playthrough.
+Suggested columns:
+id uuid primary key
+status text not null
+values: active, lost, won, abandoned
+current_question_number int default 0
+current_winnings int default 0
+correct_count int default 0
+used_fifty_fifty boolean default false
+used_ask_host boolean default false
+used_skip boolean default false
+created_at timestamp default now()
+updated_at timestamp default now()
+session_questions
+This stores the generated question for each session step.
+Suggested columns:
+id uuid primary key
+session_id uuid references game_sessions(id)
+question_number int not null
+category text not null
+difficulty int not null
+corpus_item_ids uuid[]
+question_text text not null
+options jsonb not null
+correct_index int not null
+explanation text not null
+host_hint text
+is_answered boolean default false
+is_skipped boolean default false
+selected_index int
+is_correct boolean
+created_at timestamp default now()
+session_events optional
+Only add this if you want a cleaner audit trail.
+Suggested columns:
+id uuid primary key
+session_id uuid references game_sessions(id)
+event_type text not null
+payload jsonb
+created_at timestamp default now()
+If you want to keep things lean, skip session_events.
+Definition of done
+You can see the tables in Supabase and insert test rows manually.
+
+5. Seed the dataset
+This is where a lot of the project value comes from.
+Create a data/corpus.json file with around 300 to 1000 rows. That is enough to feel substantial without wasting time.
+Each row should be a compact knowledge card, for example:
+{
+  "title": "OpenAI released GPT-4",
+  "category": "AI",
+  "difficulty": 2,
+  "summary": "GPT-4 is a large multimodal model introduced by OpenAI with stronger reasoning and safety performance than earlier GPT models.",
+  "fact_1": "It followed GPT-3.5",
+  "fact_2": "It supported multimodal input in some forms",
+  "fact_3": "It was used in ChatGPT Plus",
+  "tags": ["openai", "llm", "ai"],
+  "source_label": "encyclopedic",
+  "source_url": null,
+  "is_current": false
+}
+
+Make categories balanced.
+A good split:
+25% AI
+20% startups/business
+20% internet culture
+20% technology/history
+15% current events / fresh topics
+Then write a simple seed script that inserts these rows into corpus_items.
+Important rule
+Keep each record short and question-friendly. You are not building a document retrieval system. You are building a trivia corpus.
+Definition of done
+You can query rows by category and difficulty from Supabase.
+
+6. Build the pure game engine before any AI calls
+Create lib/game/engine.ts.
+This file should contain only deterministic logic.
+Add:
+prize ladder array
+safe milestone logic
+question count max
+difficulty curve
+category rotation
+next winnings logic
+final game result logic
+50:50 logic
+answer state transitions
+Example constants:
+export const PRIZE_LADDER = [100, 200, 300, 500, 1000, 2000, 4000, 8000, 16000, 32000];
+export const TOTAL_QUESTIONS = 10;
+
+Example functions:
+getPrizeForQuestion(questionNumber)
+getNextDifficulty(correctCount, questionNumber)
+pickNextCategory(previousCategories)
+applyFiftyFifty(correctIndex)
+computeGameStatus({ isCorrect, questionNumber })
+This step matters because your backend should decide truth, not the frontend and not Gemini.
+Definition of done
+You can unit-test this file without any API calls.
+
+7. Build the Gemini question generator in isolation
+Now create lib/gemini/generateQuestion.ts.
+Use the Google GenAI SDK and structured output. Gemini’s structured outputs support JSON schema and Zod in JavaScript, which makes it much easier to force a clean response format. (Google AI for Developers)
+Your question schema
+Make Gemini return exactly:
+{
+  questionText: string;
+  options: [string, string, string, string];
+  correctIndex: number;
+  explanation: string;
+  category: string;
+  difficulty: number;
+}
+
+Your generation prompt should say
+use only the supplied context
+write one clear multiple-choice question
+exactly 4 options
+exactly 1 correct answer
+no “all of the above”
+no trick ambiguity
+keep options similar in length
+explanation must justify the correct answer using supplied context
+output only valid JSON matching the schema
+Also add validation
+Use Zod to validate the model output. If validation fails:
+retry once or twice
+if it still fails, return a server error
+Test it outside the app first
+Create a script in scripts/test-gemini-question.ts that passes mock corpus context and prints the result.
+Definition of done
+From the terminal, you can generate a valid question object repeatedly.
+
+8. Build the retrieval function from Supabase
+Create lib/game/getQuestionContext.ts.
+This function should:
+accept category, difficulty, and excludeIds
+query corpus_items
+fetch 3 to 5 rows
+avoid duplicates already used in the session
+return compact context strings
+At first, do plain SQL-style filtering:
+match category
+prefer matching difficulty
+randomize a bit
+limit 3–5 rows
+Do not add embeddings yet unless you already have the core loop working. Supabase supports pgvector for embeddings and vector similarity, but that is an enhancement, not your starting point. (Supabase)
+Definition of done
+Given a category and difficulty, you can fetch usable context rows.
+
+9. Combine retrieval + Gemini into one service
+Create lib/game/createQuestionForSession.ts.
+This function should:
+inspect the session
+choose category
+choose difficulty
+fetch corpus rows
+call Gemini
+save the generated question to session_questions
+return the saved question
+This is your most important function.
+Inputs
+sessionId
+Outputs
+question record with:
+question text
+options
+question number
+category
+difficulty
+prize amount
+Definition of done
+Given a session ID, the database gets a new session_questions row and your code returns it.
+
+10. Build the API routes in this exact order
+Route 1: POST /api/game/start
+This should:
+create a new game_sessions row
+set status = active
+set question number to 0
+immediately call createQuestionForSession
+return:
+sessionId
+first question
+prize ladder
+lifeline availability
+Route 2: GET /api/game/[sessionId]
+This should return current state:
+session info
+latest question
+winnings
+used lifelines
+status
+Useful for page refresh recovery.
+Route 3: POST /api/game/[sessionId]/answer
+This should:
+accept selected option index
+find the latest unanswered question
+compare deterministically against stored correct_index
+update the question row
+update session winnings/status
+return:
+isCorrect
+correctIndex
+explanation
+updatedWinnings
+gameStatus
+canAdvance
+Route 4: POST /api/game/[sessionId]/next
+This should:
+verify previous question is answered or skipped
+if game is still active and question count < 10:
+generate next question
+otherwise return final status
+Route 5: POST /api/game/[sessionId]/lifeline/fifty-fifty
+This should:
+verify it has not been used
+verify there is an active unanswered question
+compute two removable wrong answers deterministically
+mark session lifeline as used
+return indexes to disable
+Route 6: POST /api/game/[sessionId]/lifeline/ask-host
+This should:
+verify it has not been used
+fetch current question
+call Gemini to generate a short hint
+store hint on question row
+mark lifeline used
+return hint text
+Route 7: POST /api/game/[sessionId]/lifeline/skip
+This should:
+verify it has not been used
+mark current question as skipped
+mark session lifeline used
+call next question generation
+return next question
+Definition of done
+You can play a full game using only Postman, Thunder Client, or curl.
+
+11. Add the optional dynamic behavior last
+The take-home asks for dynamic behavior. The easiest guaranteed dynamic behavior is player adaptation:
+stronger performance increases difficulty
+repeated wrong answers lower or stabilize difficulty
+categories rotate based on prior play
+That already counts as adaptation based on user behavior.
+If you want a stronger story, add one Today’s Bonus route that uses Gemini’s Google Search grounding. Gemini’s grounding with Google Search is designed for real-time information and can return citations. Also, Gemini 3 supports combining structured outputs with built-in tools like Google Search. (Google AI for Developers)
+Build this only after the core game works.
+Suggested route:
+POST /api/game/[sessionId]/today-bonus
+This route:
+calls Gemini with Google Search grounding enabled
+asks for one current-event trivia question in structured JSON
+stores source metadata if you want to display it
+Definition of done
+One question in the game can be based on fresh web information.
+
+12. Only now wire the frontend to real data
+Once the API is working, connect the UI.
+The frontend should do very little logic. It should mostly:
+call start
+render current state
+submit answer
+show reveal
+call next
+trigger lifelines
+The frontend should never know the truth in advance. It should only receive the correct answer after submit.
+State you need on the client
+sessionId
+session
+currentQuestion
+selectedIndex
+disabledIndexes
+hostHint
+loadingState
+resultState
+Definition of done
+The UI can complete a game without mock data.
+
+13. Test the failure cases
+Before deploying, test these:
+Gemini issues
+invalid JSON
+duplicate options
+correctIndex out of range
+ambiguous question
+question too easy or too hard
+Gameplay issues
+double-click answer
+refresh page mid-game
+use lifeline twice
+skip last question
+answer after game over
+next question before reveal
+no corpus rows available
+Data issues
+bad env vars
+empty DB
+Supabase timeout
+Gemini timeout
+Add small guardrails:
+retry model call once
+if still broken, show friendly error and regenerate
+store used question context IDs to avoid repeats
+Definition of done
+You cannot easily break the game with normal user behavior.
+
+14. Deploy properly
+Deploy on Vercel.
+Add:
+NEXT_PUBLIC_SUPABASE_URL
+NEXT_PUBLIC_SUPABASE_ANON_KEY
+SUPABASE_SERVICE_ROLE_KEY
+GEMINI_API_KEY
+Vercel’s docs note that environment variables are configured outside source code and that updates require a new deployment to take effect. (Vercel)
+Then:
+redeploy
+test public URL
+verify all server routes work in production
+check browser console for client errors
+check Vercel function logs if Gemini calls fail
+Definition of done
+A stranger can open the live URL and play a full session.
+
+15. Write the README and the one-page submission note
+Do this last, once the app exists.
+README should include
+project overview
+stack
+setup instructions
+required env vars
+how to run locally
+how the game works
+how AI is used
+how data is used
+One-page write-up should include
+why you chose Millionaire
+architecture summary
+Gemini usage:
+structured multiple-choice generation
+host hints
+optional grounded current-event question
+Supabase usage:
+corpus storage
+session persistence
+generated question persistence
+dynamic behavior:
+adaptive difficulty
+optional fresh grounded question
+tradeoffs:
+skipped auth/multiplayer/vector search to focus on a complete playable prototype
+
+The exact order I would personally follow
+Create Next app
+Create Supabase project
+Create DB tables
+Seed corpus_items
+Write pure game engine
+Write Gemini question generator test script
+Write Supabase retrieval function
+Write createQuestionForSession
+Build POST /api/game/start
+Build POST /api/game/[sessionId]/answer
+Build POST /api/game/[sessionId]/next
+Build three lifeline routes
+Play the whole game via API client
+Connect UI
+Add optional Today’s Bonus grounded question
+Polish loading/error states
+Deploy to Vercel
+Write README
+Write one-page submission note
+
+Where you should begin today
+Begin with this exact mini-goal:
+By the end of the first working block, you should be able to run one script that prints a valid Gemini-generated millionaire question from 3 Supabase corpus rows.
+If that works, your whole project is on rails.
+If you want, I can turn this into a literal implementation checklist with file names, route names, SQL schema, and prompt templates so you can follow it line by line while building.
+
