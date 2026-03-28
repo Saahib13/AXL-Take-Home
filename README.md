@@ -10,6 +10,10 @@ This is a [Next.js](https://nextjs.org) project bootstrapped with [`create-next-
 
 Re-running the seed **appends** duplicate rows unless you clear `corpus_items` first.
 
+## Game engine (pure logic)
+
+Deterministic rules live in [`lib/game/engine.ts`](./lib/game/engine.ts) (no DB, AI, or randomness). Run **`npm test`** for Vitest unit tests.
+
 ## Getting Started
 
 First, run the development server:

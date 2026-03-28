@@ -1,0 +1,89 @@
+Build a pure deterministic game engine for my AI-powered Millionaire-style game.
+
+Create `lib/game/engine.ts` and unit tests for it.
+
+This file must contain NO:
+- AI calls
+- Supabase calls
+- fetch calls
+- React code
+- Next.js code
+- randomness
+- time-based behavior
+
+It should contain only pure TypeScript business logic for game rules.
+
+Implement and export:
+- `PRIZE_LADDER`
+- `TOTAL_QUESTIONS`
+- `SAFE_MILESTONES`
+- `DEFAULT_CATEGORIES`
+- `MIN_DIFFICULTY`
+- `MAX_DIFFICULTY`
+- `getPrizeForQuestion(questionNumber)`
+- `getGuaranteedWinnings(questionNumber)`
+- `getNextDifficulty(correctCount, questionNumber)`
+- `pickNextCategory(previousCategories, availableCategories?)`
+- `applyFiftyFifty(correctIndex)`
+- `computeAnswerOutcome(selectedIndex, correctIndex, wasSkipped?)`
+- `computeGameStatus({ isCorrect, questionNumber })`
+- `advanceSessionFromAnswer(input)`
+
+Requirements:
+- question numbers are 1-indexed
+- prize ladder is `[100, 200, 300, 500, 1000, 2000, 4000, 8000, 16000, 32000]`
+- total questions is `10`
+- safe milestones should be `$1,000` and `$8,000`
+- categories should default to:
+  - `AI`
+  - `Startups`
+  - `Internet Culture`
+  - `Technology History`
+  - `Current Events`
+- difficulty should stay between 1 and 3
+- category picking must be deterministic and should avoid repeating the same category if alternatives exist
+- 50:50 must always keep the correct answer and exactly one incorrect answer, deterministically
+- incorrect answers should fall back to the highest safe milestone already reached
+- correct final answer should set status to `won`
+- incorrect answer should set status to `lost`
+- intermediate correct answer should set status to `active`
+
+Add strong validation:
+- invalid question numbers should throw
+- invalid answer indexes should throw
+- empty category arrays should throw
+
+Add useful types/interfaces.
+
+Suggested statuses:
+- `active`
+- `lost`
+- `won`
+- `abandoned`
+
+Suggested answer outcomes:
+- `correct`
+- `incorrect`
+- `skipped`
+
+Tests must cover:
+- prize lookup
+- safe milestone fallback
+- difficulty curve
+- deterministic category rotation
+- deterministic 50:50 behavior for all correct indexes
+- answer outcome logic
+- game status logic
+- final answer progression logic
+- skip logic
+
+Keep the implementation simple, explicit, and easy to read.
+Do not overengineer.
+
+After coding, give me:
+1. a summary of what was created
+2. assumptions made
+3. test coverage added
+4. how the API layer should call this engine later
+
+Use the spec in `millionaire_engine_cursor_spec.md` if present.
