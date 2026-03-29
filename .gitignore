@@ -39,3 +39,6 @@ yarn-error.log*
 
 # typescript
 *.tsbuildinfo
+
+# local-only documentation (not committed)
+PROJECT_START_TO_FINISH.local.md
