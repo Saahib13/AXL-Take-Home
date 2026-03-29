@@ -8,6 +8,7 @@ const nextConfig: NextConfig = {
   turbopack: {
     root: projectRoot,
   },
+  reactCompiler: true,
 };
 
 export default nextConfig;
