@@ -1,52 +1,94 @@
-This is a [Next.js](https://nextjs.org) project bootstrapped with [`create-next-app`](https://nextjs.org/docs/app/api-reference/cli/create-next-app).
+# Current Event Millionaire
 
-**Current Event Millionaire** — take-home skeleton: App Router, TypeScript, Tailwind CSS, shadcn/ui, Zod, Supabase client, and Google GenAI (`@google/genai`). Copy [`.env.example`](./.env.example) to `.env.local` and set `NEXT_PUBLIC_SUPABASE_*`, `SUPABASE_SERVICE_ROLE_KEY`, and `GEMINI_API_KEY` before wiring backend routes. Deploy on [Vercel](https://vercel.com) with the same variable names.
+An AI-powered, web-based trivia game inspired by **Who Wants to Be a Millionaire**.
 
-## Corpus seeding
+This project was built as a take-home assignment for an **AI Software Engineering** role. It combines a polished Next.js frontend with a Supabase-backed game state system and Gemini-powered question generation.
 
-1. Add topic cards to [`data/corpus.json`](./data/corpus.json) (JSON array). Allowed `category` values: `AI`, `Startups`, `Internet Culture`, `Technology History`, `Current Events`; `difficulty` 1–3.
-2. Run `npm run seed:corpus` (loads `.env.local`; uses the Supabase **service role** key).
-3. Run `npm run verify:supabase` to confirm table health, row counts by category, and an `AI` sample read (up to 5 rows).
+## What it does
 
-Re-running the seed **appends** duplicate rows unless you clear `corpus_items` first.
+The game lets a player:
 
-## Game engine (pure logic)
+- start a new session
+- answer multiple-choice trivia questions
+- progress through a prize ladder
+- use lifelines:
+  - **50:50**
+  - **Ask the Host**
+  - **Skip**
+- recover their game state after refresh
+- play through a full game using live backend routes
 
-Deterministic rules live in [`lib/game/engine.ts`](./lib/game/engine.ts) (no DB, AI, or randomness). Run **`npm test`** for Vitest unit tests.
+Questions are generated dynamically from a seeded dataset stored in Supabase. Gemini is used to generate:
+- multiple-choice questions
+- explanations
+- host hints
 
-Gemini MCQ smoke test (needs `GEMINI_API_KEY` in `.env.local`): **`npm run test:gemini`**.
+## Tech stack
 
-## Getting Started
+- **Next.js** (App Router)
+- **TypeScript**
+- **Tailwind CSS**
+- **shadcn/ui**
+- **Supabase** (Postgres + session/question persistence)
+- **Google Gemini API** via `@google/genai`
+- **Zod** for runtime validation
+- **Vitest** for engine tests
+- **Vercel** for deployment
 
-First, run the development server:
+## How AI is used
 
-```bash
-npm run dev
-# or
-yarn dev
-# or
-pnpm dev
-# or
-bun dev
-```
+Gemini plays a meaningful role in the product:
 
-Open [http://localhost:3000](http://localhost:3000) with your browser to see the result.
+- generates one validated multiple-choice question from retrieved corpus context
+- returns structured JSON that is validated with Zod
+- generates short “Ask the Host” hints
+- supports a dynamic, data-backed game experience rather than hardcoded questions
 
-You can start editing the page by modifying `app/page.tsx`. The page auto-updates as you edit the file.
+## How data is used
 
-This project uses [`next/font`](https://nextjs.org/docs/app/building-your-application/optimizing/fonts) to automatically optimize and load [Geist](https://vercel.com/font), a new font family for Vercel.
+The game uses a Supabase table called `corpus_items` containing compact topic cards such as:
 
-## Learn More
+- title
+- category
+- difficulty
+- summary
+- supporting facts
+- tags
+- source label
 
-To learn more about Next.js, take a look at the following resources:
+The backend retrieves relevant rows by:
+- category
+- target difficulty
+- exclusion of previously used corpus rows
 
-- [Next.js Documentation](https://nextjs.org/docs) - learn about Next.js features and API.
-- [Learn Next.js](https://nextjs.org/learn) - an interactive Next.js tutorial.
+This context is then passed to Gemini to generate a question grounded in the selected data.
 
-You can check out [the Next.js GitHub repository](https://github.com/vercel/next.js) - your feedback and contributions are welcome!
+## Dynamic behavior
 
-## Deploy on Vercel
+The game adapts over time through:
 
-The easiest way to deploy your Next.js app is to use the [Vercel Platform](https://vercel.com/new?utm_medium=default-template&filter=next.js&utm_source=create-next-app&utm_campaign=create-next-app-readme) from the creators of Next.js.
+- backend-selected category rotation
+- difficulty progression based on game rules
+- fresh question generation from a larger corpus
+- persistent session state
+- Gemini-generated hints and explanations
 
-Check out our [Next.js deployment documentation](https://nextjs.org/docs/app/building-your-application/deploying) for more details.
+## Project structure
+
+```txt
+app/
+  api/
+    game/
+  game/
+components/
+  game/
+  ui/
+data/
+  corpus.json
+lib/
+  api/
+  game/
+  gemini/
+  supabase/
+scripts/
+types/
