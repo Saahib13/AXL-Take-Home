@@ -1,6 +1,8 @@
 "use client";
 
-import { useState, useCallback } from "react";
+import { useState, useCallback, useEffect, useRef } from "react";
+import { useRouter } from "next/navigation";
+import { Button } from "@/components/ui/button";
 import { GameHeader } from "./GameHeader";
 import { PrizeLadder, PrizeLadderCompact } from "./PrizeLadder";
 import { QuestionCard } from "./QuestionCard";
@@ -10,191 +12,375 @@ import { AIHostPanel } from "./AIHostPanel";
 import { LoadingOverlay } from "./LoadingOverlay";
 import { ResultSummaryCard, ExplanationCard } from "./ResultSummaryCard";
 import {
-  MOCK_QUESTIONS,
-  MOCK_CORRECT_ANSWERS,
-  MOCK_EXPLANATIONS,
-  MOCK_HOST_HINTS,
-  createInitialGameState,
-} from "@/lib/mock-data";
-import { PRIZE_LADDER } from "@/types/game";
-import type { GameState, GameResult, LifelineType } from "@/types/game";
+  getGameSession,
+  postAnswer,
+  postNextQuestion,
+  postFiftyFifty,
+  postAskHost,
+  postSkip,
+  postStartGame,
+  GameApiError,
+} from "@/lib/api/game";
+import {
+  apiQuestionToUi,
+  apiLifelinesToUi,
+  removedIndexesToOptionIds,
+} from "@/lib/game/uiMappers";
+import { PRIZE_LADDER, TOTAL_QUESTIONS } from "@/types/game";
+import type {
+  GameSessionApiResponse,
+  ApiPublicQuestion,
+  GameResult,
+  LifelineType,
+  Lifelines,
+  PublicQuestion,
+} from "@/types/game";
 
 interface GameClientProps {
   sessionId: string;
 }
 
+function mergeSessionFromAnswer(
+  prev: GameSessionApiResponse,
+  res: {
+    status: string;
+    currentWinnings: number;
+    correctCount: number;
+  }
+): GameSessionApiResponse {
+  return {
+    ...prev,
+    status: res.status,
+    currentWinnings: res.currentWinnings,
+    correctCount: res.correctCount,
+    question: null,
+  };
+}
+
 export function GameClient({ sessionId }: GameClientProps) {
-  const [gameState, setGameState] = useState<GameState>(() =>
-    createInitialGameState(sessionId)
+  const router = useRouter();
+  const revealTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
+
+  const [session, setSession] = useState<GameSessionApiResponse | null>(null);
+  const [currentQuestion, setCurrentQuestion] = useState<PublicQuestion | null>(
+    null
   );
-  const [disabledAnswers, setDisabledAnswers] = useState<string[]>([]);
+  const [selectedIndex, setSelectedIndex] = useState<number | null>(null);
+  const [disabledIndexes, setDisabledIndexes] = useState<string[]>([]);
+  const [hostHint, setHostHint] = useState<string | undefined>(undefined);
+  const [lifelines, setLifelines] = useState<Lifelines>({
+    fiftyFifty: false,
+    askTheHost: false,
+    skip: false,
+  });
+  const [categoriesFaced, setCategoriesFaced] = useState<string[]>([]);
+
+  const [bootLoading, setBootLoading] = useState(true);
+  const [loadError, setLoadError] = useState<string | null>(null);
   const [isLocking, setIsLocking] = useState(false);
+  const [isLoadingNext, setIsLoadingNext] = useState(false);
+  const [actionError, setActionError] = useState<string | null>(null);
+
+  const [isRevealing, setIsRevealing] = useState(false);
+  const [correctAnswerId, setCorrectAnswerId] = useState<string | null>(null);
+  const [explanation, setExplanation] = useState<string | null>(null);
+  const [lastAnswerCorrect, setLastAnswerCorrect] = useState(false);
+  const [endResult, setEndResult] = useState<"won" | "lost" | null>(null);
+
+  const clearRevealTimer = useCallback(() => {
+    if (revealTimerRef.current !== null) {
+      clearTimeout(revealTimerRef.current);
+      revealTimerRef.current = null;
+    }
+  }, []);
+
+  const applyApiQuestion = useCallback((q: ApiPublicQuestion) => {
+    setCurrentQuestion(apiQuestionToUi(q));
+    setDisabledIndexes(removedIndexesToOptionIds(q.removedOptionIndexes));
+    setHostHint(q.hostHint ?? undefined);
+    setCategoriesFaced((prev) =>
+      prev.includes(q.category) ? prev : [...prev, q.category]
+    );
+  }, []);
+
+  const ingestSession = useCallback(
+    (data: GameSessionApiResponse) => {
+      setSession(data);
+      setLifelines(apiLifelinesToUi(data.lifelines));
+      if (data.question) {
+        applyApiQuestion(data.question);
+      } else {
+        setCurrentQuestion(null);
+        setDisabledIndexes([]);
+        setHostHint(undefined);
+      }
+      setSelectedIndex(null);
+      setCorrectAnswerId(null);
+      setExplanation(null);
+      setIsRevealing(false);
+      setLastAnswerCorrect(false);
+      clearRevealTimer();
+    },
+    [applyApiQuestion, clearRevealTimer]
+  );
+
+  const loadSession = useCallback(async () => {
+    setBootLoading(true);
+    setLoadError(null);
+    try {
+      const data = await getGameSession(sessionId);
+      ingestSession(data);
+      if (data.status === "won" || data.status === "lost") {
+        setEndResult(data.status as "won" | "lost");
+      } else {
+        setEndResult(null);
+      }
+    } catch (e) {
+      const msg =
+        e instanceof GameApiError ? e.message : "Failed to load game session.";
+      setLoadError(msg);
+      setSession(null);
+      setCurrentQuestion(null);
+    } finally {
+      setBootLoading(false);
+    }
+  }, [sessionId, ingestSession]);
+
+  useEffect(() => {
+    loadSession();
+  }, [loadSession]);
+
+  useEffect(() => () => clearRevealTimer(), [clearRevealTimer]);
 
   const handleSelectAnswer = useCallback((answerId: string) => {
-    setGameState((prev) => ({
-      ...prev,
-      selectedAnswerId: answerId,
-    }));
+    const n = Number.parseInt(answerId, 10);
+    if (Number.isNaN(n) || n < 0 || n > 3) return;
+    setSelectedIndex(n);
   }, []);
 
   const handleLockIn = useCallback(async () => {
-    if (!gameState.currentQuestion || !gameState.selectedAnswerId) return;
-
+    if (selectedIndex === null || !currentQuestion) return;
     setIsLocking(true);
+    setActionError(null);
+    clearRevealTimer();
+    try {
+      const res = await postAnswer(sessionId, selectedIndex);
+      setCorrectAnswerId(String(res.correctIndex));
+      setExplanation(res.explanation);
+      setIsRevealing(true);
+      const correct = res.outcome === "correct";
+      setLastAnswerCorrect(correct);
+      setSession((prev) =>
+        prev ? mergeSessionFromAnswer(prev, res) : prev
+      );
 
-    // Simulate API call delay with suspenseful timing
-    await new Promise((resolve) => setTimeout(resolve, 2000));
-
-    const correctId = MOCK_CORRECT_ANSWERS[gameState.currentQuestion.id];
-    const explanation = MOCK_EXPLANATIONS[gameState.currentQuestion.id];
-    const isCorrect = gameState.selectedAnswerId === correctId;
-
-    setGameState((prev) => ({
-      ...prev,
-      status: "revealing",
-      correctAnswerId: correctId,
-      explanation,
-      questionsAnswered: prev.questionsAnswered + 1,
-    }));
-
-    setIsLocking(false);
-
-    // After reveal, wait then either advance or end game
-    setTimeout(() => {
-      if (isCorrect) {
-        const nextIndex = gameState.currentQuestionIndex + 1;
-        if (nextIndex >= MOCK_QUESTIONS.length) {
-          // Won the game
-          setGameState((prev) => ({
-            ...prev,
-            status: "won",
-            totalWinnings: PRIZE_LADDER[prev.currentQuestionIndex],
-          }));
-        } else {
-          // Advance to next question
-          setGameState((prev) => ({
-            ...prev,
-            status: "loading",
-          }));
-
-          setTimeout(() => {
-            const nextQuestion = MOCK_QUESTIONS[nextIndex];
-            setGameState((prev) => ({
-              ...prev,
-              status: "playing",
-              currentQuestion: nextQuestion,
-              currentQuestionIndex: nextIndex,
-              selectedAnswerId: null,
-              correctAnswerId: null,
-              explanation: undefined,
-              hostHint: undefined,
-              totalWinnings: PRIZE_LADDER[prev.currentQuestionIndex],
-              categoriesFaced: prev.categoriesFaced.includes(nextQuestion.category)
-                ? prev.categoriesFaced
-                : [...prev.categoriesFaced, nextQuestion.category],
-            }));
-            setDisabledAnswers([]);
-          }, 2500);
-        }
-      } else {
-        // Lost the game
-        setGameState((prev) => ({
-          ...prev,
-          status: "lost",
-          totalWinnings: prev.currentQuestionIndex > 0 
-            ? PRIZE_LADDER[prev.currentQuestionIndex - 1] 
-            : 0,
-        }));
+      if (!correct || res.didLoseGame) {
+        revealTimerRef.current = setTimeout(() => {
+          setEndResult("lost");
+          setIsRevealing(false);
+        }, 3500);
+      } else if (res.didWinGame) {
+        revealTimerRef.current = setTimeout(() => {
+          setEndResult("won");
+          setIsRevealing(false);
+        }, 3500);
       }
-    }, 3500);
-  }, [gameState.currentQuestion, gameState.selectedAnswerId, gameState.currentQuestionIndex]);
+    } catch (e) {
+      const msg =
+        e instanceof GameApiError ? e.message : "Could not submit answer.";
+      setActionError(msg);
+    } finally {
+      setIsLocking(false);
+    }
+  }, [
+    selectedIndex,
+    currentQuestion,
+    sessionId,
+    clearRevealTimer,
+  ]);
+
+  const handleNextQuestion = useCallback(async () => {
+    setIsLoadingNext(true);
+    setActionError(null);
+    try {
+      const res = await postNextQuestion(sessionId);
+      setSession((prev) =>
+        prev
+          ? {
+              ...prev,
+              question: res.question,
+              prizeLadder: res.prizeLadder,
+              lifelines: res.lifelines,
+              currentQuestionNumber: res.question.questionNumber,
+            }
+          : prev
+      );
+      setLifelines(apiLifelinesToUi(res.lifelines));
+      applyApiQuestion(res.question);
+      setSelectedIndex(null);
+      setCorrectAnswerId(null);
+      setExplanation(null);
+      setIsRevealing(false);
+      setLastAnswerCorrect(false);
+      clearRevealTimer();
+    } catch (e) {
+      const msg =
+        e instanceof GameApiError ? e.message : "Could not load next question.";
+      setActionError(msg);
+    } finally {
+      setIsLoadingNext(false);
+    }
+  }, [sessionId, applyApiQuestion, clearRevealTimer]);
 
   const handleUseLifeline = useCallback(
-    (lifeline: LifelineType) => {
-      if (!gameState.currentQuestion || !gameState.lifelines[lifeline]) return;
-
-      setGameState((prev) => ({
-        ...prev,
-        lifelines: {
-          ...prev.lifelines,
-          [lifeline]: false,
-        },
-      }));
-
-      if (lifeline === "fiftyFifty") {
-        const correctId = MOCK_CORRECT_ANSWERS[gameState.currentQuestion.id];
-        const wrongOptions = gameState.currentQuestion.options
-          .filter((opt) => opt.id !== correctId)
-          .slice(0, 2);
-        setDisabledAnswers(wrongOptions.map((opt) => opt.id));
-      } else if (lifeline === "askTheHost") {
-        const hint = MOCK_HOST_HINTS[gameState.currentQuestion.id];
-        setGameState((prev) => ({
-          ...prev,
-          hostHint: hint,
-        }));
-      } else if (lifeline === "skip") {
-        const nextIndex = gameState.currentQuestionIndex + 1;
-        if (nextIndex < MOCK_QUESTIONS.length) {
-          setGameState((prev) => ({
-            ...prev,
-            status: "loading",
-          }));
-
-          setTimeout(() => {
-            const nextQuestion = MOCK_QUESTIONS[nextIndex];
-            setGameState((prev) => ({
+    async (lifeline: LifelineType) => {
+      if (!currentQuestion || !lifelines[lifeline]) return;
+      setActionError(null);
+      try {
+        if (lifeline === "fiftyFifty") {
+          const res = await postFiftyFifty(sessionId);
+          setDisabledIndexes((prev) => [
+            ...new Set([
               ...prev,
-              status: "playing",
-              currentQuestion: nextQuestion,
-              currentQuestionIndex: nextIndex,
-              selectedAnswerId: null,
-              correctAnswerId: null,
-              explanation: undefined,
-              hostHint: undefined,
-              categoriesFaced: prev.categoriesFaced.includes(nextQuestion.category)
-                ? prev.categoriesFaced
-                : [...prev.categoriesFaced, nextQuestion.category],
-            }));
-            setDisabledAnswers([]);
-          }, 2000);
+              String(res.removedIndexes[0]),
+              String(res.removedIndexes[1]),
+            ]),
+          ]);
+          setLifelines((l) => ({ ...l, fiftyFifty: false }));
+          setSession((prev) =>
+            prev
+              ? {
+                  ...prev,
+                  lifelines: {
+                    ...prev.lifelines,
+                    fiftyFiftyAvailable: false,
+                  },
+                }
+              : prev
+          );
+        } else if (lifeline === "askTheHost") {
+          const res = await postAskHost(sessionId);
+          setHostHint(res.hostHint);
+          setLifelines((l) => ({ ...l, askTheHost: false }));
+          setSession((prev) =>
+            prev
+              ? {
+                  ...prev,
+                  lifelines: {
+                    ...prev.lifelines,
+                    askHostAvailable: false,
+                  },
+                }
+              : prev
+          );
+        } else if (lifeline === "skip") {
+          const res = await postSkip(sessionId);
+          setSession((prev) =>
+            prev
+              ? {
+                  ...prev,
+                  question: res.question,
+                  lifelines: res.lifelines,
+                  currentQuestionNumber: res.question.questionNumber,
+                }
+              : prev
+          );
+          setLifelines(apiLifelinesToUi(res.lifelines));
+          applyApiQuestion(res.question);
+          setSelectedIndex(null);
+          setCorrectAnswerId(null);
+          setExplanation(null);
+          setIsRevealing(false);
+          clearRevealTimer();
         }
+      } catch (e) {
+        const msg =
+          e instanceof GameApiError ? e.message : "Lifeline request failed.";
+        setActionError(msg);
       }
     },
-    [gameState.currentQuestion, gameState.lifelines, gameState.currentQuestionIndex]
+    [
+      currentQuestion,
+      lifelines,
+      sessionId,
+      applyApiQuestion,
+      clearRevealTimer,
+    ]
   );
 
-  const handlePlayAgain = useCallback(() => {
-    setGameState(createInitialGameState(sessionId));
-    setDisabledAnswers([]);
-  }, [sessionId]);
+  const handlePlayAgain = useCallback(async () => {
+    setActionError(null);
+    try {
+      const { sessionId: newId } = await postStartGame();
+      router.replace(`/game/${newId}`);
+    } catch (e) {
+      const msg =
+        e instanceof GameApiError ? e.message : "Could not start a new game.";
+      setActionError(msg);
+    }
+  }, [router]);
 
   const handleReturnHome = useCallback(() => {
-    window.location.href = "/";
-  }, []);
+    router.push("/");
+  }, [router]);
 
-  // Show results screen
-  if (gameState.status === "won" || gameState.status === "lost") {
-    const usedLifelines: LifelineType[] = [];
-    if (!gameState.lifelines.fiftyFifty) usedLifelines.push("fiftyFifty");
-    if (!gameState.lifelines.askTheHost) usedLifelines.push("askTheHost");
-    if (!gameState.lifelines.skip) usedLifelines.push("skip");
+  const prizeLadderStep = session?.correctCount ?? 0;
+  const selectedId =
+    selectedIndex !== null ? String(selectedIndex) : null;
+  const showContinueOnly =
+    session?.status === "active" &&
+    !currentQuestion &&
+    !isRevealing &&
+    !bootLoading &&
+    endResult === null;
 
+  const usedLifelines: LifelineType[] = [];
+  if (!lifelines.fiftyFifty) usedLifelines.push("fiftyFifty");
+  if (!lifelines.askTheHost) usedLifelines.push("askTheHost");
+  if (!lifelines.skip) usedLifelines.push("skip");
+
+  if (bootLoading && !session) {
+    return (
+      <div className="min-h-screen bg-background flex items-center justify-center">
+        <LoadingOverlay isVisible />
+      </div>
+    );
+  }
+
+  if (loadError && !session) {
+    return (
+      <div className="min-h-screen bg-background flex items-center justify-center p-6">
+        <div className="max-w-md text-center space-y-4">
+          <p className="text-destructive">{loadError}</p>
+          <Button onClick={() => loadSession()}>Try again</Button>
+          <Button variant="outline" onClick={handleReturnHome}>
+            Home
+          </Button>
+        </div>
+      </div>
+    );
+  }
+
+  if (endResult !== null && session) {
     const result: GameResult = {
-      status: gameState.status,
-      finalWinnings: gameState.totalWinnings,
-      questionsAnswered: gameState.questionsAnswered,
-      categoriesFaced: gameState.categoriesFaced,
+      status: endResult,
+      finalWinnings: session.currentWinnings,
+      questionsAnswered: session.correctCount,
+      categoriesFaced,
       lifelinesUsed: usedLifelines,
     };
 
     return (
       <div className="min-h-screen bg-background flex items-center justify-center p-6">
-        {/* Background effects for results */}
         <div className="fixed inset-0 pointer-events-none">
           <div className="absolute top-1/4 left-1/4 w-[500px] h-[500px] bg-primary/5 rounded-full blur-[150px]" />
           <div className="absolute bottom-1/4 right-1/4 w-[400px] h-[400px] bg-secondary/5 rounded-full blur-[120px]" />
         </div>
+        {actionError && (
+          <p className="fixed top-4 left-1/2 -translate-x-1/2 text-sm text-destructive z-50">
+            {actionError}
+          </p>
+        )}
         <ResultSummaryCard
           result={result}
           onPlayAgain={handlePlayAgain}
@@ -204,109 +390,160 @@ export function GameClient({ sessionId }: GameClientProps) {
     );
   }
 
-  if (!gameState.currentQuestion) {
+  if (showContinueOnly) {
     return (
-      <div className="min-h-screen bg-background flex items-center justify-center">
-        <LoadingOverlay isVisible={true} />
+      <div className="min-h-screen bg-background flex items-center justify-center p-6">
+        <div className="fixed inset-0 pointer-events-none">
+          <div className="absolute top-1/4 left-1/4 w-[500px] h-[500px] bg-primary/5 rounded-full blur-[150px]" />
+        </div>
+        <div className="relative max-w-md w-full rounded-2xl border border-border/50 bg-card/80 backdrop-blur-sm p-8 text-center space-y-6 shadow-xl">
+          <h2 className="text-xl font-semibold">Ready for the next question?</h2>
+          <p className="text-muted-foreground text-sm">
+            Continue when you are set. Your progress is saved on the server.
+          </p>
+          {actionError && (
+            <p className="text-sm text-destructive">{actionError}</p>
+          )}
+          <Button
+            size="lg"
+            className="w-full"
+            onClick={() => handleNextQuestion()}
+            disabled={isLoadingNext}
+          >
+            {isLoadingNext ? "Loading…" : "Next question"}
+          </Button>
+        </div>
+        <LoadingOverlay
+          isVisible={isLoadingNext}
+          message="Generating your next question..."
+          submessage="Our AI is crafting a unique challenge just for you"
+        />
       </div>
     );
   }
 
-  const isRevealing = gameState.status === "revealing";
+  if (!currentQuestion) {
+    return (
+      <div className="min-h-screen bg-background flex items-center justify-center">
+        <LoadingOverlay isVisible />
+      </div>
+    );
+  }
+
+  const isRevealingUi = isRevealing;
+  const nextPrizeAfterCorrect =
+    lastAnswerCorrect &&
+    currentQuestion.questionNumber > 0 &&
+    currentQuestion.questionNumber < PRIZE_LADDER.length
+      ? PRIZE_LADDER[currentQuestion.questionNumber]
+      : undefined;
 
   return (
     <div className="min-h-screen bg-background">
-      {/* Background effects */}
       <div className="fixed inset-0 pointer-events-none">
         <div className="absolute top-0 left-1/4 w-[600px] h-[600px] bg-primary/3 rounded-full blur-[150px]" />
         <div className="absolute bottom-0 right-1/4 w-[500px] h-[500px] bg-secondary/3 rounded-full blur-[120px]" />
       </div>
 
       <LoadingOverlay
-        isVisible={gameState.status === "loading"}
+        isVisible={bootLoading || isLoadingNext}
         message="Generating your next question..."
         submessage="Our AI is crafting a unique challenge just for you"
       />
 
+      {actionError && (
+        <div className="relative z-10 max-w-7xl mx-auto px-5 pt-4">
+          <p className="text-sm text-destructive bg-destructive/10 border border-destructive/20 rounded-lg px-3 py-2">
+            {actionError}
+          </p>
+        </div>
+      )}
+
       <div className="relative max-w-7xl mx-auto p-5 lg:p-8">
         <GameHeader
-          questionNumber={gameState.currentQuestion.questionNumber}
-          totalQuestions={MOCK_QUESTIONS.length}
-          category={gameState.currentQuestion.category}
-          difficulty={gameState.currentQuestion.difficulty}
-          currentWinnings={gameState.totalWinnings}
+          questionNumber={currentQuestion.questionNumber}
+          totalQuestions={TOTAL_QUESTIONS}
+          category={currentQuestion.category}
+          difficulty={currentQuestion.difficulty}
+          currentWinnings={session?.currentWinnings ?? 0}
         />
 
-        {/* Mobile compact views */}
         <div className="lg:hidden mt-5 space-y-4">
-          <PrizeLadderCompact currentStep={gameState.currentQuestionIndex} />
+          <PrizeLadderCompact currentStep={prizeLadderStep} />
           <LifelineBarCompact
-            lifelines={gameState.lifelines}
+            lifelines={lifelines}
             onUse={handleUseLifeline}
-            disabled={isRevealing || gameState.status === "loading"}
+            disabled={isRevealingUi || isLoadingNext || isLocking}
           />
         </div>
 
         <div className="mt-8 grid grid-cols-1 lg:grid-cols-[280px_1fr_300px] gap-6 lg:gap-8">
-          {/* Left sidebar - Prize Ladder (desktop only) */}
           <aside className="hidden lg:block">
             <PrizeLadder
-              currentStep={gameState.currentQuestionIndex}
+              currentStep={prizeLadderStep}
               className="sticky top-8"
             />
           </aside>
 
-          {/* Main content */}
           <main className="space-y-6">
-            <QuestionCard question={gameState.currentQuestion} />
-            
+            <QuestionCard question={currentQuestion} />
+
             <AnswerGrid
-              options={gameState.currentQuestion.options}
-              selectedId={gameState.selectedAnswerId}
-              correctId={gameState.correctAnswerId}
-              isRevealing={isRevealing}
-              disabledIds={disabledAnswers}
+              options={currentQuestion.options}
+              selectedId={selectedId}
+              correctId={correctAnswerId}
+              isRevealing={isRevealingUi}
+              disabledIds={disabledIndexes}
               onSelect={handleSelectAnswer}
               onLockIn={handleLockIn}
               isLocking={isLocking}
             />
 
-            {isRevealing && gameState.explanation && (
-              <ExplanationCard
-                explanation={gameState.explanation}
-                isCorrect={gameState.selectedAnswerId === gameState.correctAnswerId}
-                nextPrize={
-                  gameState.selectedAnswerId === gameState.correctAnswerId
-                    ? PRIZE_LADDER[gameState.currentQuestionIndex + 1]
-                    : undefined
-                }
-              />
+            {isRevealingUi && explanation && (
+              <>
+                <ExplanationCard
+                  explanation={explanation}
+                  isCorrect={lastAnswerCorrect}
+                  nextPrize={nextPrizeAfterCorrect}
+                />
+                {lastAnswerCorrect && session?.status === "active" && (
+                  <div className="pt-2">
+                    <Button
+                      variant="gold"
+                      size="xl"
+                      className="w-full"
+                      onClick={() => handleNextQuestion()}
+                      disabled={isLoadingNext}
+                    >
+                      {isLoadingNext ? "Loading…" : "Next question"}
+                    </Button>
+                  </div>
+                )}
+              </>
             )}
           </main>
 
-          {/* Right sidebar (desktop only) */}
           <aside className="hidden lg:flex flex-col gap-6">
             <LifelineBar
-              lifelines={gameState.lifelines}
+              lifelines={lifelines}
               onUse={handleUseLifeline}
-              disabled={isRevealing || gameState.status === "loading"}
+              disabled={isRevealingUi || isLoadingNext || isLocking}
             />
             <AIHostPanel
-              hint={gameState.hostHint}
-              streak={gameState.questionsAnswered}
-              difficulty={gameState.currentQuestion.difficulty}
-              lifelines={gameState.lifelines}
+              hint={hostHint}
+              streak={session?.correctCount ?? 0}
+              difficulty={currentQuestion.difficulty}
+              lifelines={lifelines}
             />
           </aside>
         </div>
 
-        {/* Mobile AI Host Panel */}
         <div className="lg:hidden mt-6">
           <AIHostPanel
-            hint={gameState.hostHint}
-            streak={gameState.questionsAnswered}
-            difficulty={gameState.currentQuestion.difficulty}
-            lifelines={gameState.lifelines}
+            hint={hostHint}
+            streak={session?.correctCount ?? 0}
+            difficulty={currentQuestion.difficulty}
+            lifelines={lifelines}
           />
         </div>
       </div>

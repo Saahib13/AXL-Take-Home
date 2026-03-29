@@ -20,17 +20,27 @@ import {
   ArrowRight,
 } from "lucide-react";
 import { cn, formatCurrency } from "@/lib/utils";
+import { postStartGame, GameApiError } from "@/lib/api/game";
 import { PRIZE_LADDER } from "@/types/game";
 
 export default function LandingPage() {
   const router = useRouter();
   const [isStarting, setIsStarting] = useState(false);
+  const [startError, setStartError] = useState<string | null>(null);
 
   const handleStartGame = useCallback(async () => {
     setIsStarting(true);
-    const sessionId = `session_${Date.now()}`;
-    await new Promise((resolve) => setTimeout(resolve, 500));
-    router.push(`/game/${sessionId}`);
+    setStartError(null);
+    try {
+      const { sessionId } = await postStartGame();
+      router.push(`/game/${sessionId}`);
+    } catch (e) {
+      const msg =
+        e instanceof GameApiError ? e.message : "Could not start game. Try again.";
+      setStartError(msg);
+    } finally {
+      setIsStarting(false);
+    }
   }, [router]);
 
   const scrollToHowItWorks = useCallback(() => {
@@ -80,6 +90,7 @@ export default function LandingPage() {
               </div>
 
               <div className="flex flex-col sm:flex-row gap-4">
+                <div className="flex flex-col gap-2">
                 <Button
                   onClick={handleStartGame}
                   disabled={isStarting}
@@ -99,6 +110,12 @@ export default function LandingPage() {
                     </>
                   )}
                 </Button>
+                {startError && (
+                  <p className="text-sm text-destructive max-w-md" role="alert">
+                    {startError}
+                  </p>
+                )}
+                </div>
                 <Button
                   onClick={scrollToHowItWorks}
                   variant="outline"

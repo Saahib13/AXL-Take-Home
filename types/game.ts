@@ -1,3 +1,78 @@
+/** Backend JSON shapes (camelCase as returned by NextResponse.json). */
+
+export type ApiPublicQuestion = {
+  id: string;
+  questionNumber: number;
+  category: string;
+  difficulty: number;
+  prizeAmount: number;
+  questionText: string;
+  options: [string, string, string, string];
+  isAnswered: boolean;
+  isSkipped: boolean;
+  hostHint: string | null;
+  removedOptionIndexes: [number, number] | null;
+};
+
+export type ApiLifelines = {
+  fiftyFiftyAvailable: boolean;
+  askHostAvailable: boolean;
+  skipAvailable: boolean;
+};
+
+export type GameSessionApiResponse = {
+  sessionId: string;
+  status: string;
+  currentQuestionNumber: number;
+  currentWinnings: number;
+  correctCount: number;
+  prizeLadder: number[];
+  lifelines: ApiLifelines;
+  question: ApiPublicQuestion | null;
+};
+
+export type StartGameApiResponse = {
+  sessionId: string;
+  question: ApiPublicQuestion;
+  prizeLadder: number[];
+  lifelines: ApiLifelines;
+};
+
+export type AnswerApiResponse = {
+  outcome: string;
+  status: string;
+  currentWinnings: number;
+  guaranteedWinnings: number;
+  correctCount: number;
+  didWinGame: boolean;
+  didLoseGame: boolean;
+  explanation: string;
+  correctIndex: number;
+};
+
+export type NextQuestionApiResponse = {
+  question: ApiPublicQuestion;
+  prizeLadder: number[];
+  lifelines: ApiLifelines;
+};
+
+export type FiftyFiftyApiResponse = {
+  removedIndexes: [number, number];
+  keepIndexes: [number, number];
+};
+
+export type AskHostApiResponse = {
+  hostHint: string;
+};
+
+export type SkipApiResponse = {
+  skippedQuestionNumber: number;
+  question: ApiPublicQuestion;
+  lifelines: ApiLifelines;
+};
+
+/** UI-facing question (used by QuestionCard / AnswerGrid). */
+
 export interface PublicQuestion {
   id: string;
   questionNumber: number;
@@ -52,5 +127,7 @@ export interface GameResult {
 export const PRIZE_LADDER = [
   100, 200, 300, 500, 1000, 2000, 4000, 8000, 16000, 32000,
 ] as const;
+
+export const TOTAL_QUESTIONS = PRIZE_LADDER.length;
 
 export type PrizeAmount = (typeof PRIZE_LADDER)[number];
